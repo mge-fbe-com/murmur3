@@ -70,34 +70,63 @@ pub fn murmur3_32<T: Read>(source: &mut T, seed: u32) -> Result<u32> {
 /// let hash_result = murmur3_32_of_slice("hello world".as_bytes(), 0);
 /// ```
 pub fn murmur3_32_of_slice(source: &[u8], seed: u32) -> u32 {
-    let mut buffer = source;
+    murmur3_32_of_slices(&[source], seed)
+    // let mut buffer = source;
+    // let mut processed = 0;
+    // let mut state = seed;
+    // loop {
+    //     match min(buffer.len(), 4) {
+    //         0 => return finish(state, processed),
+    //         1 => {
+    //             processed += 1;
+    //             let k: u32 = buffer[0] as u32;
+    //             state ^= calc_k(k);
+    //             return finish(state, processed);
+    //         }
+    //         2 => {
+    //             processed += 2;
+    //             let k: u32 = ((buffer[1] as u32) << 8) | (buffer[0] as u32);
+    //             state ^= calc_k(k);
+    //             return finish(state, processed);
+    //         }
+    //         3 => {
+    //             processed += 3;
+    //             let k: u32 =
+    //                 ((buffer[2] as u32) << 16) | ((buffer[1] as u32) << 8) | (buffer[0] as u32);
+    //             state ^= calc_k(k);
+    //             return finish(state, processed);
+    //         }
+    //         4 => {
+    //             processed += 4;
+    //             let k: u32 = ((buffer[3] as u32) << 24)
+    //                 | ((buffer[2] as u32) << 16)
+    //                 | ((buffer[1] as u32) << 8)
+    //                 | (buffer[0] as u32);
+    //             state ^= calc_k(k);
+    //             state = state.rotate_left(R2);
+    //             state = (state.wrapping_mul(M)).wrapping_add(N);
+    //             buffer = &buffer[4..];
+    //         }
+    //         _ => unreachable!(),
+    //     };
+    // }
+}
+
+pub fn murmur3_32_of_slices(source: &[&[u8]], seed: u32) -> u32{
     let mut processed = 0;
     let mut state = seed;
-    loop {
-        match min(buffer.len(), 4) {
-            0 => return finish(state, processed),
-            1 => {
-                processed += 1;
-                let k: u32 = buffer[0] as u32;
-                state ^= calc_k(k);
-                return finish(state, processed);
-            }
-            2 => {
-                processed += 2;
-                let k: u32 = ((buffer[1] as u32) << 8) | (buffer[0] as u32);
-                state ^= calc_k(k);
-                return finish(state, processed);
-            }
-            3 => {
-                processed += 3;
-                let k: u32 =
-                    ((buffer[2] as u32) << 16) | ((buffer[1] as u32) << 8) | (buffer[0] as u32);
-                state ^= calc_k(k);
-                return finish(state, processed);
-            }
-            4 => {
+
+    let mut k: u32=0u32;
+    let mut k_offset: u32=0;
+
+    for buffer1 in source {
+        let mut buffer = *buffer1;
+        while buffer.len() > 0 {
+            let buffer_len = buffer.len();
+            k_offset = processed & 0x3;
+            if k_offset == 0 && buffer_len >= 4 {
                 processed += 4;
-                let k: u32 = ((buffer[3] as u32) << 24)
+                k = ((buffer[3] as u32) << 24)
                     | ((buffer[2] as u32) << 16)
                     | ((buffer[1] as u32) << 8)
                     | (buffer[0] as u32);
@@ -105,10 +134,30 @@ pub fn murmur3_32_of_slice(source: &[u8], seed: u32) -> u32 {
                 state = state.rotate_left(R2);
                 state = (state.wrapping_mul(M)).wrapping_add(N);
                 buffer = &buffer[4..];
+                k=0;
+            }else {
+                // take 1 byte at a time
+                processed += 1;
+                k |= (buffer[0] as u32) << (8*k_offset);
+                buffer = &buffer[1..];
+
+                if k_offset == 3 {
+                    // k is good
+                    state ^= calc_k(k);
+                    state = state.rotate_left(R2);
+                    state = (state.wrapping_mul(M)).wrapping_add(N);
+                    k=0;
+                }
             }
-            _ => unreachable!(),
-        };
+        }
     }
+
+    if processed & 0x3 != 0 {
+        // k is good
+        state ^= calc_k(k);
+    }
+
+    finish(state, processed)
 }
 
 fn finish(state: u32, processed: u32) -> u32 {
